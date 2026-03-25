@@ -1,0 +1,326 @@
+:root {
+  --espresso:  #2B1A0F;
+  --roast:     #5C3317;
+  --caramel:   #C47F2E;
+  --latte:     #D4A96A;
+  --cream:     #F5ECD7;
+  --foam:      #FBF6EE;
+  --steam:     #8C7560;
+  --border:    #EAD9C0;
+  --hover:     #EDD9B0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Lora', serif;
+  background: var(--foam);
+  color: var(--espresso);
+  padding: 2rem 1rem;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding-bottom: 80px;
+}
+
+/* ── Header ───────────────────────────────────── */
+h1 {
+  font-family: 'Lora', serif;
+  font-size: 2rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--espresso);
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: var(--steam);
+  margin-bottom: 2rem;
+}
+
+/* ── Genre tabs ───────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--latte);
+  border-radius: 99px;
+  background: var(--foam);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--roast);
+}
+
+.tab:hover {
+  border-color: var(--caramel);
+  color: var(--espresso);
+  background: var(--cream);
+}
+
+.tab.active {
+  background: var(--roast);
+  border-color: var(--roast);
+  color: var(--foam);
+}
+
+/* ── Sort ─────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+select {
+  font-family: 'Lora', serif;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--latte);
+  border-radius: 6px;
+  background: var(--foam);
+  color: var(--roast);
+  cursor: pointer;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--caramel);
+}
+
+/* ── Filters ──────────────────────────────────── */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.filters label {
+  margin-left: 16px;
+  color: var(--roast);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.filters label:first-child {
+  margin-left: 0;
+}
+
+.filters select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--latte);
+  background: var(--foam);
+  color: var(--roast);
+}
+
+.export-csv {
+  background-color: var(--caramel);
+  font-weight: 600;
+  color: var(--foam);
+  padding: 6px 16px;
+  border-radius: 5rem;
+  border: 1px solid var(--caramel);
+  cursor: pointer;
+  margin-left: auto;
+  display: block;
+}
+
+/* ── Table ────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+  margin-top: 5px;
+}
+
+thead tr {
+  background-color: var(--roast);
+  color: var(--cream);
+}
+
+thead th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+tbody tr:nth-child(even) {
+  background-color: var(--cream);
+}
+
+tbody tr:hover {
+  background-color: var(--hover);
+}
+
+tbody td {
+  padding: 10px 16px;
+  vertical-align: middle;
+}
+
+.title-col a {
+  color: var(--espresso);
+  text-decoration: none;
+  border-bottom: 1px solid var(--latte);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.title-col a:hover {
+  color: var(--caramel);
+  border-bottom-color: var(--caramel);
+}
+
+.rank-col {
+  color: var(--steam);
+  font-size: 0.85rem;
+  width: 50px;
+  text-align: center;
+}
+
+.votes-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--roast);
+}
+
+.year-col {
+  text-align: center;
+  color: var(--steam);
+}
+
+.title-col {
+  font-weight: 500;
+  color: var(--espresso);
+}
+
+.author-col {
+  color: var(--steam);
+  font-style: italic;
+}
+
+.results-count {
+  font-size: 0.8rem;
+  color: var(--steam);
+  margin-bottom: 8px;
+}
+
+.genre-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  font-weight: 500;
+  background-color: var(--cream);
+  color: var(--roast);
+  border: 1px solid var(--latte);
+}
+
+.no-results {
+  text-align: center;
+  padding: 24px;
+  color: var(--steam);
+  font-style: italic;
+}
+
+/* ── Book cards ───────────────────────────────── */
+.book-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.book-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--foam);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: box-shadow 0.15s;
+}
+
+.book-card:hover {
+  box-shadow: 0 2px 12px rgba(92, 51, 23, 0.1);
+}
+
+.rank {
+  font-family: 'Lora', serif;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--latte);
+  width: 2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+
+.book-info { flex: 1; min-width: 0; }
+
+.book-title {
+  font-family: 'Lora', serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--espresso);
+}
+
+.book-author {
+  font-size: 0.8rem;
+  color: var(--steam);
+  margin-top: 0.1rem;
+  font-style: italic;
+}
+
+.book-votes {
+  font-size: 0.8rem;
+  color: var(--steam);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.book-votes strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--espresso);
+  font-weight: 500;
+}
+
+/* ── Empty ────────────────────────────────────── */
+.empty {
+  text-align: center;
+  padding: 3rem;
+  color: var(--steam);
+  font-style: italic;
+  font-family: 'Lora', serif;
+}
+
+/* ── Footer ───────────────────────────────────── */
+footer {
+  width: 100%;
+  text-align: center;
+  padding: 16px;
+  background: var(--cream);
+  border-top: 1px solid var(--border);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  color: var(--steam);
+  font-size: 0.9rem;
+  z-index: 100;
+}

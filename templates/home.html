@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container">
+ 
+  <h1>📚 Book Rankings</h1>
+  <p class="subtitle">Goodreads Readers Choice Awards 2011 - 2025</p>
+ 
+  <div class="filters">
+    <label>Genre</label>
+    <select id="filter-genre" onchange="applyFilters()">
+      <option value="">All Genres</option>
+      {% for genre in data | map(attribute='genre') | unique | sort %}
+        <option value="{{ genre }}">{{ genre }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Year</label>
+    <select id="filter-year" onchange="applyFilters()">
+      <option value="">All Years</option>
+      {% for year in data | map(attribute='year') | unique | sort(reverse=True) %}
+        <option value="{{ year }}">{{ year }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Sort by</label>
+    <select id="sort-by" onchange="applyFilters()">
+      <option value="votes">Votes</option>
+      <option value="rating">Rating</option>
+      <option value="title">Title A–Z</option>
+      <option value="author">Author A–Z</option>
+    </select>
+
+    <label>Show</label>
+    <select id="filter-show" onchange="applyFilters()">
+      {% for n in ["all", 10, 20, 30, 50, 100] %}
+          <option value="{{ n }}" {% if n == limit %}selected{% endif %}>
+              {{ n | capitalize }}
+          </option>
+      {% endfor %}
+    </select>
+
+    <button class="export-csv" onclick="exportCSV()">Export as CSV</button>
+  </div>
+  
+  <p class="results-count" id="results-count"></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Rank</th>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Rating</th>
+        <th>Genre</th>
+        <th>Year</th>
+        <th style="text-align:right">Votes</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+
+</div>
+ 
+
+{% endblock %}
