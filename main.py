@@ -3,6 +3,7 @@ import sqlite3
 import time
 import threading
 import re
+import random
 from flask import Flask, render_template, request
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
@@ -104,30 +105,50 @@ def insert_data_parallel(books, genre):
 
 
 ## still getting 5.0 rating for the ones which ratings are way below 5.0
-## fix this issue next
 def get_rating_goodreads(author, title):
+    # Guard against None arguments
+    if not author or not title:
+        print("Author or title is None, skipping Goodreads lookup.")
+        return None
+
     try:
+        time.sleep(random.uniform(2, 5))
+
         search_response = requests.get(
             "https://www.goodreads.com/search",
-            params={"q": f"{title} {author}"},
-            headers={"User-Agent": "Mozilla/5.0"}
+            params={"q": f"{title} {author}", "search_type": "books"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10
         )
         if search_response.status_code != 200:
             print(f"Blocked! Status code: {search_response.status_code}")
             return None
-    
-        soup = BeautifulSoup(search_response.text, "html.parser")
-        
-        rating_tag = soup.find("span", class_="minirating")
-        if not rating_tag:
-            return None
-        
-        # text looks like "4.23 avg rating — 1,234 ratings"
-        rating = re.search(r"\d\.\d+", rating_tag.text)
-        return float(rating.group()) if rating else None
 
-    except Exception:
+        soup = BeautifulSoup(search_response.text, "html.parser")
+        results = soup.select("table.tableList tr")
+
+        for row in results:
+            book_title_tag = row.select_one("a.bookTitle span")
+            book_author_tag = row.select_one("a.authorName span")
+            rating_tag = row.select_one("span.minirating")
+
+            book_title = book_title_tag.text.strip().lower() if book_title_tag and book_title_tag.text else ""
+            book_author = book_author_tag.text.strip().lower() if book_author_tag and book_author_tag.text else ""
+
+            if not rating_tag or not book_title or not book_author:
+                continue
+
+            if title.lower() in book_title and author.lower() in book_author:
+                rating_match = re.search(r"\d\.\d+", rating_tag.text)
+                if rating_match:
+                    return float(rating_match.group())
+
         return None
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
 
 def update_ratings():
     books = book_database.execute("SELECT ol_key, author, title FROM books").fetchall()
