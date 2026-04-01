@@ -1,12 +1,11 @@
 import requests
 import sqlite3
-import time
 import threading
 import re
-import random
-from flask import Flask, render_template, request
+import unicodedata
+from flask import Flask, render_template
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 GENRES = ['classic', 'crime', 'fiction', 'historical+fiction', 'mystery', 'thriller', 'fantasy', 'science+fiction', 'autobiography']
@@ -15,7 +14,7 @@ SORTS = ["readinglog", "rating"]
 
 BASE_URL = "https://openlibrary.org/"
 
-# app = Flask(__name__)
+app = Flask(__name__)
 
 db_lock = threading.Lock()
 
@@ -103,22 +102,57 @@ def insert_data_parallel(books, genre):
 
 # print("Done.")
 
+import unicodedata
 
-## still getting 5.0 rating for the ones which ratings are way below 5.0
+def normalize(text):
+    """Lowercase, remove special characters, and normalize unicode."""
+    if not text:
+        return ""
+    text = text.lower()
+    # Normalize unicode (e.g. accented chars)
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    # Remove special characters (keep only alphanumeric and spaces)
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    return text.strip()
+
+def titles_match(search_title, result_title, threshold=0.75):
+    """Return True if most words of search_title appear in result_title."""
+    search_words = normalize(search_title).split()
+    result_normalized = normalize(result_title)
+    
+    if not search_words:
+        return False
+
+    matched = sum(1 for word in search_words if word in result_normalized)
+    return (matched / len(search_words)) >= threshold
+
+def clean_text(text):
+    if not text:
+        return text
+    # Remove anything in parentheses or brackets
+    text = re.sub(r'\(.*?\)', '', text)  # (...)
+    text = re.sub(r'\[.*?\]', '', text)  # [...]
+    return text.strip()
+
 def get_rating_goodreads(author, title):
     # Guard against None arguments
     if not author or not title:
-        print("Author or title is None, skipping Goodreads lookup.")
+        print(f"{author}-{title}: Author or title is None, skipping Goodreads lookup.")
         return None
+    # Clean before searching
+    clean_title = clean_text(title)
+    clean_author = clean_text(author)
 
     try:
-        time.sleep(random.uniform(2, 5))
-
         search_response = requests.get(
             "https://www.goodreads.com/search",
-            params={"q": f"{title} {author}", "search_type": "books"},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10
+            params={"q":  f"{clean_title} {clean_author}", "search_type": "books"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xhtml;q=0.9,*/*;q=0.8",
+            }
         )
         if search_response.status_code != 200:
             print(f"Blocked! Status code: {search_response.status_code}")
@@ -131,6 +165,7 @@ def get_rating_goodreads(author, title):
             book_title_tag = row.select_one("a.bookTitle span")
             book_author_tag = row.select_one("a.authorName span")
             rating_tag = row.select_one("span.minirating")
+            book_link_tag = row.select_one("a.bookTitle")
 
             book_title = book_title_tag.text.strip().lower() if book_title_tag and book_title_tag.text else ""
             book_author = book_author_tag.text.strip().lower() if book_author_tag and book_author_tag.text else ""
@@ -138,10 +173,20 @@ def get_rating_goodreads(author, title):
             if not rating_tag or not book_title or not book_author:
                 continue
 
-            if title.lower() in book_title and author.lower() in book_author:
+            if titles_match(clean_title, book_title) and clean_author.lower() in normalize(book_author):
                 rating_match = re.search(r"\d\.\d+", rating_tag.text)
                 if rating_match:
-                    return float(rating_match.group())
+                    rating = float(rating_match.group())
+                else:
+                    rating = None
+            
+                # Build full book URL
+                book_link = None
+                if book_link_tag and book_link_tag.get("href"):
+                    href = book_link_tag["href"]
+                    book_link = f"https://www.goodreads.com{href}" if href.startswith("/") else href
+
+                return rating, book_link
 
         return None
 
@@ -150,31 +195,82 @@ def get_rating_goodreads(author, title):
         return None
 
 
+def update_one(book):
+    ol_key, author, title = book
+    result = get_rating_goodreads(author, title)
+
+    if result is None:
+        return  # Skip if lookup failed
+
+    rating, book_link = result  # Unpack the tuple
+
+    with db_lock:
+        if book_link:
+            book_database.execute(
+                "UPDATE books SET rating = ?, book_url = ? WHERE ol_key = ?",
+                (rating, book_link, ol_key)
+            )
+        else:
+            book_database.execute(
+                "UPDATE books SET rating = ? WHERE ol_key = ?",
+                (rating, ol_key)
+            )
+        book_database.commit()
+
+
 def update_ratings():
     books = book_database.execute("SELECT ol_key, author, title FROM books").fetchall()
-    print(f"Updating ratings for {len(books)} books...")
 
-    def update_one(book):
-        ol_key, author, title = book
-        rating = get_rating_goodreads(author, title)
-        with db_lock:
-            book_database.execute("UPDATE books SET rating = ? WHERE ol_key = ?", (rating, ol_key))
+    with ThreadPoolExecutor(max_workers=10) as executor:  # Lower from 100 — GR will rate-limit you
+        futures = {executor.submit(update_one, book): book for book in books}
+        for future in as_completed(futures):
+            try:
+                future.result()  # Surface any exceptions from threads
+            except Exception as e:
+                book = futures[future]
+                print(f"Failed to update {book}: {e}")
 
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        for book in books:
-            executor.submit(update_one, book)
-
-    book_database.commit()
     print("Ratings updated.")
 
+# Uncomment here for updating your database with up-to-date url and rating scores
 update_ratings()
 book_database.close()
 
 
 
+
 # @app.route("/")
 # def home():
-#     return render_template("home.html")
+#     conn = sqlite3.connect("books.db")
+#     conn.row_factory = sqlite3.Row
+#     cursor = conn.cursor()
+
+#     cursor.execute("""
+#         SELECT title, author, rating, genre, year, readinglog, book_url
+#         FROM books
+#         WHERE rating IS NOT NULL
+#     """)
+
+#     rows = cursor.fetchall()
+#     conn.close()
+
+#     data = [dict(row) for row in rows]
+
+#     # Extract unique individual genres server-side
+#     genre_set = set()
+#     for book in data:
+#         if book.get("genre"):
+#             for g in book["genre"].split(","):
+#                 genre_set.add(g.strip())
+#     genres = sorted(genre_set)
+
+#     print(data[0])
+
+#     return render_template("home.html", data=data, genres=genres, limit="all")
+
+# @app.route("/about")
+# def about():
+#     return render_template('about.html')
 
 
 # if __name__ == "__main__":

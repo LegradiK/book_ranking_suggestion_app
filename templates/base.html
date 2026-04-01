@@ -14,9 +14,6 @@
 
     {% include "footer.html" %}
 
-  <script>
-    window.BOOKS = {{ data | tojson }};
-  </script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
   </body>
 </html>

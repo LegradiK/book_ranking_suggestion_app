@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — BookShelf</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;1,8..60,300;1,8..60,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <!-- Hero bar — matches main page -->
+  <div class="hero-bar">
+    <h1>📚 About <span>BookShelf</span></h1>
+    <p class="subtitle">Built for readers, by a reader</p>
+  </div>
+
+  <div class="page">
+
+    <!-- What it does -->
+    <section class="d1">
+      <span class="section-tag">The idea</span>
+      <h2>What is <em>BookShelf?</em></h2>
+      <div class="card">
+        <p>
+          BookShelf is a personal book discovery tool built around one simple question:
+          of the thousands of books in a genre, which ones are genuinely worth your time?
+        </p>
+        <p>
+          It combines reading-log popularity from Open Library with community ratings from Goodreads —
+          giving each book a score that reflects both how widely read it is and how much people actually enjoyed it.
+          No sponsored placements, no algorithmic noise. Just books.
+        </p>
+        <div class="genres">
+          <span class="genre">Classic</span>
+          <span class="genre">Crime</span>
+          <span class="genre">Fiction</span>
+          <span class="genre">Historical Fiction</span>
+          <span class="genre">Mystery</span>
+          <span class="genre">Thriller</span>
+          <span class="genre">Fantasy</span>
+          <span class="genre">Science Fiction</span>
+          <span class="genre">Autobiography</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider"><span class="divider-glyph">✦ ✦ ✦</span></div>
+
+    <!-- How ratings work -->
+    <section class="d2">
+      <span class="section-tag">Ratings</span>
+      <h2>How <em>ratings work</em></h2>
+      <p style="color:var(--steam); font-size:0.92rem;">Each book is scored using two independent signals, then stored locally so browsing is instant.</p>
+      <div class="two-col">
+        <div class="info-card">
+          <div class="info-card-icon">📖</div>
+          <h3>Reading activity</h3>
+          <p>The total number of Open Library users who marked a book as want-to-read, currently reading, or already read. A proxy for real-world reach.</p>
+        </div>
+        <div class="info-card">
+          <div class="info-card-icon">⭐</div>
+          <h3>Goodreads rating</h3>
+          <p>Community star ratings matched to each book by title and author. Reflects how much readers actually enjoyed it — scored out of 5.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider"><span class="divider-glyph">✦ ✦ ✦</span></div>
+
+    <!-- Data sources -->
+    <section class="d3">
+      <span class="section-tag">Data sources</span>
+      <h2>Where the <em>data comes from</em></h2>
+      <p style="color:var(--steam); font-size:0.92rem;">BookShelf pulls from two public sources to build and score its catalogue.</p>
+      <div class="two-col">
+        <div class="info-card">
+          <span class="source-badge badge-ol">Open Library</span>
+          <h3>Book catalogue &amp; reading logs</h3>
+          <p>An open, community-maintained catalogue of millions of books. BookShelf uses their Search and Bookshelves APIs to discover titles and measure how widely read they are.</p>
+        </div>
+        <div class="info-card">
+          <span class="source-badge badge-gr">Goodreads</span>
+          <h3>Community ratings</h3>
+          <p>
+            The world's largest book review community. Ratings are matched against the catalogue by title and author, with a direct Goodreads link saved for every entry. 
+            Where Goodreads data is unavailable, links may be sourced from Open Library.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider"><span class="divider-glyph">✦ ✦ ✦</span></div>
+
+    <!-- How it works -->
+    <section class="d4">
+      <span class="section-tag">Under the hood</span>
+      <h2>How it <em>works</em></h2>
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <div>
+            <p class="step-title">Fetch from Open Library</p>
+            <p>Books are pulled from Open Library's Search API across nine genres, sorted by reading-log activity to surface the most relevant titles per category.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <div>
+            <p class="step-title">Count reading activity</p>
+            <p>For each book, we total everyone who marked it as want-to-read, currently reading, or already read via Open Library's Bookshelves API.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <div>
+            <p class="step-title">Match Goodreads ratings</p>
+            <p>Each book is searched on Goodreads by title and author. When a confident match is found, the star rating and a direct link are saved alongside it.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
+          <div>
+            <p class="step-title">Stored &amp; served instantly</p>
+            <p>Everything lives in a local SQLite database. No external calls at browse time — your shelf loads fast every time.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider"><span class="divider-glyph">✦ ✦ ✦</span></div>
+
+    <!-- Tech stack -->
+    <section class="d5">
+      <span class="section-tag">Built with</span>
+      <h2>The <em>tech stack</em></h2>
+      <p style="color:var(--steam); font-size:0.92rem;">A lightweight Python app with no heavy dependencies — fast to run, easy to extend.</p>
+      <div class="stack">
+        <span class="pill">Python</span>
+        <span class="pill">Flask</span>
+        <span class="pill">SQLite</span>
+        <span class="pill">BeautifulSoup4</span>
+        <span class="pill">Requests</span>
+        <span class="pill">Open Library API</span>
+        <span class="pill">ThreadPoolExecutor</span>
+        <span class="pill">Jinja2</span>
+      </div>
+    </section>
+
+  </div>
+
+  {% include "footer.html" %}
+
+</body>
+</html>
