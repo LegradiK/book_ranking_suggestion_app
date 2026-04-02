@@ -40,7 +40,8 @@ def fetch_subject(subject, sort="readinglog"):
         params={"subject": subject, 
                 "limit": 1000, 
                 "page": 1,
-                "sort": sort}
+                "sort": sort,
+                "language": "eng"}
     )
     return response.json().get('docs', [])
 
@@ -116,6 +117,17 @@ def normalize(text):
     text = re.sub(r"[^a-z0-9\s]", "", text)
     return text.strip()
 
+def normalize_author(text):
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    # Collapse single-letter tokens (initials) to remove spaces between them
+    # "h g wells" -> "hgwells", "hg wells" -> "hgwells"
+    text = re.sub(r'\b([a-z])\s+(?=[a-z]\b)', r'\1', text)
+    return text.strip()
+
 def titles_match(search_title, result_title, threshold=0.75):
     """Return True if most words of search_title appear in result_title."""
     search_words = normalize(search_title).split()
@@ -135,19 +147,19 @@ def clean_text(text):
     text = re.sub(r'\[.*?\]', '', text)  # [...]
     return text.strip()
 
-def get_rating_goodreads(author, title):
-    # Guard against None arguments
+def get_rating_goodreads(ol_key, author, title):
     if not author or not title:
-        print(f"{author}-{title}: Author or title is None, skipping Goodreads lookup.")
+        print(f"{author}-{title}: Author or title is None, skipping.")
         return None
-    # Clean before searching
-    clean_title = clean_text(title)
-    clean_author = clean_text(author)
+
+    clean_title = normalize(clean_text(title))
+    clean_author = normalize_author(clean_text(author))
 
     try:
+        # Step 1: Search by author only
         search_response = requests.get(
             "https://www.goodreads.com/search",
-            params={"q":  f"{clean_title} {clean_author}", "search_type": "books"},
+            params={"q": clean_author, "search_type": "books"},
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept-Language": "en-US,en;q=0.9",
@@ -167,26 +179,42 @@ def get_rating_goodreads(author, title):
             rating_tag = row.select_one("span.minirating")
             book_link_tag = row.select_one("a.bookTitle")
 
-            book_title = book_title_tag.text.strip().lower() if book_title_tag and book_title_tag.text else ""
-            book_author = book_author_tag.text.strip().lower() if book_author_tag and book_author_tag.text else ""
+            book_title = book_title_tag.text.strip() if book_title_tag else ""
+            book_author = book_author_tag.text.strip() if book_author_tag else ""
 
             if not rating_tag or not book_title or not book_author:
                 continue
 
-            if titles_match(clean_title, book_title) and clean_author.lower() in normalize(book_author):
-                rating_match = re.search(r"\d\.\d+", rating_tag.text)
-                if rating_match:
-                    rating = float(rating_match.group())
-                else:
-                    rating = None
-            
-                # Build full book URL
-                book_link = None
-                if book_link_tag and book_link_tag.get("href"):
-                    href = book_link_tag["href"]
-                    book_link = f"https://www.goodreads.com{href}" if href.startswith("/") else href
+            # Step 2: Match title from author's results
+            if not titles_match(clean_title, book_title):
+                continue
 
-                return rating, book_link
+            # Step 3: Sanity-check author still matches (guards against author name collision)
+            if normalize_author(clean_author) not in normalize_author(book_author):
+                continue
+
+            # Step 4: Extract rating — require minimum ratings count to avoid 5.0-from-1-rating noise
+            rating_text = rating_tag.text
+            count_match = re.search(r"([\d,]+)\s+rating", rating_text)
+            if count_match:
+                count = int(count_match.group(1).replace(",", ""))
+                if count < 50:
+                    print(f"Deleting '{title}' — only {count} ratings")
+                    with db_lock:
+                        book_database.execute("DELETE FROM books WHERE ol_key = ?", (ol_key,))
+                        book_database.commit()
+                    return None
+
+            rating_match = re.search(r"\d\.\d+", rating_text)
+            rating = float(rating_match.group()) if rating_match else None
+
+            book_link = None
+            if book_link_tag and book_link_tag.get("href"):
+                href = book_link_tag["href"]
+                book_link = f"https://www.goodreads.com{href}" if href.startswith("/") else href
+
+            print(f"MATCHED: '{book_title}' by '{book_author}' | rating: {rating}")
+            return rating, book_link
 
         return None
 
@@ -197,7 +225,7 @@ def get_rating_goodreads(author, title):
 
 def update_one(book):
     ol_key, author, title = book
-    result = get_rating_goodreads(author, title)
+    result = get_rating_goodreads(ol_key, author, title)
 
     if result is None:
         return  # Skip if lookup failed
@@ -275,3 +303,5 @@ book_database.close()
 
 # if __name__ == "__main__":
 #     app.run(debug=True)
+
+
