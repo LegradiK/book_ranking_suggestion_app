@@ -128,13 +128,22 @@ def normalize_author(text):
     text = re.sub(r'\b([a-z])\s+(?=[a-z]\b)', r'\1', text)
     return text.strip()
 
-def titles_match(search_title, result_title, threshold=0.75):
-    """Return True if most words of search_title appear in result_title."""
-    search_words = normalize(search_title).split()
-    result_normalized = normalize(result_title)
-    
+def titles_match(search_title, result_title, threshold=0.75, max_length_ratio=1.7):
+    """Return True if most words of search_title appear in result_title,
+    and the result title isn't disproportionately longer than the search title."""
+    search_normalized = normalize(clean_text(search_title))
+    # Strip series info e.g. "(Robert Langdon, #4)" before comparing length
+    result_normalized = normalize(clean_text(result_title))
+    search_words = search_normalized.split()
+
     if not search_words:
         return False
+
+    # Reject if result title is much longer than the search title
+    if len(search_normalized) > 0:
+        length_ratio = len(result_normalized) / len(search_normalized)
+        if length_ratio > max_length_ratio:
+            return False
 
     matched = sum(1 for word in search_words if word in result_normalized)
     return (matched / len(search_words)) >= threshold
@@ -147,85 +156,131 @@ def clean_text(text):
     text = re.sub(r'\[.*?\]', '', text)  # [...]
     return text.strip()
 
-def get_rating_goodreads(ol_key, author, title):
-    if not author or not title:
-        print(f"{author}-{title}: Author or title is None, skipping.")
+def author_matches(clean_authors, book_author):
+    """Return True if any stored author matches the Goodreads result author,
+    handling both 'First Last' and 'Last First' name orderings."""
+    result_normalized = normalize_author(book_author)
+    for a in clean_authors:
+        if a in result_normalized:
+            return True
+        # Try reversed: 'sandra brown' -> 'brown sandra'
+        parts = a.split()
+        if len(parts) == 2:
+            if f"{parts[1]} {parts[0]}" in result_normalized:
+                return True
+    return False
+
+
+def _search_goodreads(query):
+    """Run a single Goodreads search query and return result rows."""
+    response = requests.get(
+        "https://www.goodreads.com/search",
+        params={"q": query, "search_type": "books"},
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xhtml;q=0.9,*/*;q=0.8",
+        }
+    )
+    if response.status_code != 200:
+        print(f"Blocked! Status code: {response.status_code}")
+        return []
+    soup = BeautifulSoup(response.text, "html.parser")
+    return soup.select("table.tableList tr")
+
+
+def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
+    """Scan result rows and return (rating, book_link) for the first valid match."""
+    for row in rows:
+        book_title_tag = row.select_one("a.bookTitle span")
+        book_author_tag = row.select_one("a.authorName span")
+        rating_tag = row.select_one("span.minirating")
+        book_link_tag = row.select_one("a.bookTitle")
+
+        book_title = book_title_tag.text.strip() if book_title_tag else ""
+        book_author = book_author_tag.text.strip() if book_author_tag else ""
+
+        if not rating_tag or not book_title or not book_author:
+            continue
+
+        # Step 1: Match title
+        if not titles_match(clean_title, book_title):
+            continue
+
+        # Step 2: Sanity-check author — pass if any stored author matches
+        if not author_matches(clean_authors, book_author):
+            continue
+
+        # Step 3: Parse ratings count — hard gate
+        rating_text = rating_tag.text
+        count_match = re.search(r"([\d,]+)\s+ratings?", rating_text)
+        if not count_match:
+            print(f"Skipping '{book_title}' — couldn't parse ratings count from: '{rating_text}'")
+            continue
+
+        count = int(count_match.group(1).replace(",", ""))
+        if count < 50:
+            print(f"Deleting '{title}' — only {count} ratings")
+            with db_lock:
+                book_database.execute("DELETE FROM books WHERE ol_key = ?", (ol_key,))
+                book_database.commit()
+            return None
+
+        # Step 4: Extract rating
+        rating_match = re.search(r"\d\.\d+", rating_text)
+        if not rating_match:
+            print(f"Skipping '{book_title}' — couldn't parse rating from: '{rating_text}'")
+            continue
+
+        rating = float(rating_match.group())
+
+        # Step 5: Build Goodreads URL
+        book_link = None
+        if book_link_tag and book_link_tag.get("href"):
+            href = book_link_tag["href"]
+            book_link = f"https://www.goodreads.com{href}" if href.startswith("/") else href
+
+        print(f"MATCHED: '{book_title}' by '{book_author}' | rating: {rating} ({count} ratings)")
+        return rating, book_link
+
+    return None
+
+
+def get_rating_goodreads(ol_key, authors, title):
+    if not authors or not title:
+        print(f"{authors}-{title}: Author or title is None, skipping.")
         return None
 
     clean_title = normalize(clean_text(title))
-    clean_author = normalize_author(clean_text(author))
+    clean_authors = [normalize_author(clean_text(a)) for a in authors]
+    primary_author = clean_authors[0]
+
+    queries = [
+        clean_title,                            # title first
+        f"{primary_author} {clean_title}",      # fallback: author + title
+    ]
 
     try:
-        # Step 1: Search by author only
-        search_response = requests.get(
-            "https://www.goodreads.com/search",
-            params={"q": clean_author, "search_type": "books"},
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xhtml;q=0.9,*/*;q=0.8",
-            }
-        )
-        if search_response.status_code != 200:
-            print(f"Blocked! Status code: {search_response.status_code}")
-            return None
-
-        soup = BeautifulSoup(search_response.text, "html.parser")
-        results = soup.select("table.tableList tr")
-
-        for row in results:
-            book_title_tag = row.select_one("a.bookTitle span")
-            book_author_tag = row.select_one("a.authorName span")
-            rating_tag = row.select_one("span.minirating")
-            book_link_tag = row.select_one("a.bookTitle")
-
-            book_title = book_title_tag.text.strip() if book_title_tag else ""
-            book_author = book_author_tag.text.strip() if book_author_tag else ""
-
-            if not rating_tag or not book_title or not book_author:
+        for query in queries:
+            rows = _search_goodreads(query)
+            if not rows:
                 continue
+            result = _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title)
+            if result is not None:
+                return result
 
-            # Step 2: Match title from author's results
-            if not titles_match(clean_title, book_title):
-                continue
-
-            # Step 3: Sanity-check author still matches (guards against author name collision)
-            if normalize_author(clean_author) not in normalize_author(book_author):
-                continue
-
-            # Step 4: Extract rating — require minimum ratings count to avoid 5.0-from-1-rating noise
-            rating_text = rating_tag.text
-            count_match = re.search(r"([\d,]+)\s+rating", rating_text)
-            if count_match:
-                count = int(count_match.group(1).replace(",", ""))
-                if count < 50:
-                    print(f"Deleting '{title}' — only {count} ratings")
-                    with db_lock:
-                        book_database.execute("DELETE FROM books WHERE ol_key = ?", (ol_key,))
-                        book_database.commit()
-                    return None
-
-            rating_match = re.search(r"\d\.\d+", rating_text)
-            rating = float(rating_match.group()) if rating_match else None
-
-            book_link = None
-            if book_link_tag and book_link_tag.get("href"):
-                href = book_link_tag["href"]
-                book_link = f"https://www.goodreads.com{href}" if href.startswith("/") else href
-
-            print(f"MATCHED: '{book_title}' by '{book_author}' | rating: {rating}")
-            return rating, book_link
-
+        print(f"No match found for '{title}' by '{authors}'")
         return None
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error fetching '{title}' by '{authors}': {e}")
         return None
 
 
 def update_one(book):
     ol_key, author, title = book
-    result = get_rating_goodreads(ol_key, author, title)
+    authors = [a.strip() for a in author.split(",")] if author else []
+    result = get_rating_goodreads(ol_key, authors, title)
 
     if result is None:
         return  # Skip if lookup failed
@@ -260,8 +315,36 @@ def update_ratings():
 
     print("Ratings updated.")
 
+def update_ratings_extra():
+    books = book_database.execute(
+        "SELECT ol_key, author, title FROM books WHERE rating IS NULL"
+    ).fetchall()
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(update_one, book): book for book in books}
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                book = futures[future]
+                print(f"Failed to update {book}: {e}")
+
+    print("Ratings updated.")
+
+def clean_books():
+    """ delete books if  they don't have ratings and readinglog is less than 100 """
+    book_database.execute("""
+        DELETE FROM books
+        WHERE rating IS NULL
+        AND readinglog < 100
+    """)
+    book_database.commit()
+
+
 # Uncomment here for updating your database with up-to-date url and rating scores
-update_ratings()
+# clean_books()
+# update_ratings()
+update_ratings_extra()
 book_database.close()
 
 
@@ -303,5 +386,3 @@ book_database.close()
 
 # if __name__ == "__main__":
 #     app.run(debug=True)
-
-
