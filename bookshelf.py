@@ -1,7 +1,17 @@
 import sqlite3
 from flask import Flask, render_template
 
-""" This is for Flask app """
+"""
+Flask server for BookShelf.
+
+Serves two routes:
+  /     — main rankings page, loads all rated books from books.db and passes
+           them to the template along with a sorted list of unique genres
+  /about — static about page
+
+Run with: python server.py
+"""
+
 
 app = Flask(__name__)
 

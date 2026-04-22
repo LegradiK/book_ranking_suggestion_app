@@ -6,7 +6,20 @@ import unicodedata
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-""" This is for getting bookdata from openlibrary and goodreads """
+"""
+Data pipeline for BookShelf.
+
+Handles three jobs:
+  1. Fetch books from Open Library by genre and insert them into books.db
+  2. Match each book against Goodreads by title/author and save the rating + URL
+  3. Clean up low-quality entries (no rating, low reading activity)
+
+Typical usage:
+  - Run once with the fetch block uncommented to build books.db from scratch
+  - Run again with update_ratings() uncommented to populate Goodreads ratings
+  - Run update_ratings_extra() any time to fill in books that are still missing ratings
+"""
+
 
 GENRES = ['classic', 'crime', 'fiction', 'historical+fiction', 'mystery', 'thriller', 'fantasy', 'science+fiction', 'autobiography']
 # for getting most relevant books
@@ -387,8 +400,8 @@ def clean_books():
 # Uncomment here for updating your database with up-to-date url and rating scores
 # clean_books()
 # update_ratings()
-update_ratings_extra()
-book_database.close()
+# update_ratings_extra()
+# book_database.close()
 
 
 
