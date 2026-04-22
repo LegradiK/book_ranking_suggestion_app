@@ -55,6 +55,7 @@ function applyFilters() {
   console.log("Selected genre:", genre);
   const sortBy = document.getElementById('sort-by').value;
   const show   = document.getElementById('filter-show').value;
+  const search = document.getElementById('search-input').value.toLowerCase().trim();
 
   let books = [...BOOKS];
 
@@ -67,6 +68,14 @@ function applyFilters() {
         .includes(genre)
     );
   }
+  // Filter by search
+  if (search) {
+    books = books.filter(b =>
+      (b.title  || "").toLowerCase().includes(search) ||
+      (b.author || "").toLowerCase().includes(search)
+    );
+  }
+
 
   // Compute score
   books.forEach(b => b.score = getScore(b));

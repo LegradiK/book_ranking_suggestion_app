@@ -2,7 +2,7 @@
 {% block content %}
 <!-- Hero -->
 <div class="hero-bar">
-  <h1>📚 Book <span>Rankings</span></h1>
+  <h1>📚 BookShelf <span>Rankings</span></h1>
   <p class="subtitle">Discover your next obsession, backed by data.</p>
 </div>
 <div class="container">
@@ -37,6 +37,11 @@
           </option>
         {% endfor %}
       </select>
+    </div>
+    <div class="filter-divider"></div>
+    <div class="filter-group">
+      <label>Search</label>
+      <input class="search-input" id="search-input" placeholder="Title or author" oninput="applyFilters()">
     </div>
     <button class="export-csv" onclick="exportCSV()">Export CSV</button>
   </div>

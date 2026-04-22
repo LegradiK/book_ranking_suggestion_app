@@ -3,18 +3,16 @@ import sqlite3
 import threading
 import re
 import unicodedata
-from flask import Flask, render_template
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+""" This is for getting bookdata from openlibrary and goodreads """
 
 GENRES = ['classic', 'crime', 'fiction', 'historical+fiction', 'mystery', 'thriller', 'fantasy', 'science+fiction', 'autobiography']
 # for getting most relevant books
 SORTS = ["readinglog", "rating"]
 
 BASE_URL = "https://openlibrary.org/"
-
-app = Flask(__name__)
 
 db_lock = threading.Lock()
 
@@ -128,19 +126,17 @@ def normalize_author(text):
     text = re.sub(r'\b([a-z])\s+(?=[a-z]\b)', r'\1', text)
     return text.strip()
 
-def titles_match(search_title, result_title, threshold=0.75, max_length_ratio=1.7):
-    """Return True if most words of search_title appear in result_title,
-    and the result title isn't disproportionately longer than the search title."""
+def titles_match(search_title, result_title, threshold=0.75, max_length_ratio=2.5):
     search_normalized = normalize(clean_text(search_title))
-    # Strip series info e.g. "(Robert Langdon, #4)" before comparing length
     result_normalized = normalize(clean_text(result_title))
     search_words = search_normalized.split()
 
     if not search_words:
         return False
 
-    # Reject if result title is much longer than the search title
-    if len(search_normalized) > 0:
+    # For very short titles (1-2 words), skip length ratio check entirely —
+    # GR almost always appends a subtitle, making ratio explode unfairly
+    if len(search_words) > 2 and len(search_normalized) > 0:
         length_ratio = len(result_normalized) / len(search_normalized)
         if length_ratio > max_length_ratio:
             return False
@@ -148,25 +144,49 @@ def titles_match(search_title, result_title, threshold=0.75, max_length_ratio=1.
     matched = sum(1 for word in search_words if word in result_normalized)
     return (matched / len(search_words)) >= threshold
 
+
 def clean_text(text):
     if not text:
         return text
-    # Remove anything in parentheses or brackets
-    text = re.sub(r'\(.*?\)', '', text)  # (...)
-    text = re.sub(r'\[.*?\]', '', text)  # [...]
+    text = re.sub(r'\(.*?\)', '', text)
+    text = re.sub(r'\[.*?\]', '', text)
+    # Strip leading/trailing punctuation like quotes and periods
+    text = text.strip(' \t\n\r"\'`\u201c\u201d\u2018\u2019')
+    # Remove "Book One / Two" series suffixes
+    text = re.sub(r'\bbook\s+(one|two|three|four|\d+)\b', '', text, flags=re.IGNORECASE)
+    return text.strip(' .')
+
+
+def normalize_author(text):
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    # Remove single-letter initials entirely (e.g. "walter s tevis" -> "walter tevis")
+    text = re.sub(r'\b[a-z]\b', '', text)
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+
 def author_matches(clean_authors, book_author):
-    """Return True if any stored author matches the Goodreads result author,
-    handling both 'First Last' and 'Last First' name orderings."""
     result_normalized = normalize_author(book_author)
+    result_parts = result_normalized.split()
+
     for a in clean_authors:
-        if a in result_normalized:
+        a_parts = a.split()
+        # Direct containment
+        if a in result_normalized or result_normalized in a:
             return True
-        # Try reversed: 'sandra brown' -> 'brown sandra'
-        parts = a.split()
-        if len(parts) == 2:
-            if f"{parts[1]} {parts[0]}" in result_normalized:
+        # Any 2 words from stored author appear in result (handles middle names, "de", etc.)
+        if len(a_parts) >= 2:
+            matches = sum(1 for p in a_parts if p in result_parts and len(p) > 1)
+            if matches >= 2:
+                return True
+        # Reversed last/first
+        if len(a_parts) == 2:
+            reversed_name = f"{a_parts[1]} {a_parts[0]}"
+            if reversed_name in result_normalized:
                 return True
     return False
 
@@ -189,7 +209,7 @@ def _search_goodreads(query):
     return soup.select("table.tableList tr")
 
 
-def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
+def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title, year=None):
     """Scan result rows and return (rating, book_link) for the first valid match."""
     for row in rows:
         book_title_tag = row.select_one("a.bookTitle span")
@@ -211,7 +231,16 @@ def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
         if not author_matches(clean_authors, book_author):
             continue
 
-        # Step 3: Parse ratings count — hard gate
+        # Step 3: Year check — if we have a year, it must match
+        if year:
+            year_match = re.search(r'\b(1[0-9]{3}|20[0-9]{2})\b', row.get_text())
+            if year_match:
+                result_year = int(year_match.group())
+                if abs(result_year - year) > 2:   # allow ±2 years for edition differences
+                    print(f"Year mismatch for '{book_title}': expected {year}, got {result_year}")
+                    continue
+
+        # Step 4: Parse ratings count — hard gate
         rating_text = rating_tag.text
         count_match = re.search(r"([\d,]+)\s+ratings?", rating_text)
         if not count_match:
@@ -226,7 +255,7 @@ def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
                 book_database.commit()
             return None
 
-        # Step 4: Extract rating
+        # Step 5: Extract rating
         rating_match = re.search(r"\d\.\d+", rating_text)
         if not rating_match:
             print(f"Skipping '{book_title}' — couldn't parse rating from: '{rating_text}'")
@@ -234,7 +263,7 @@ def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
 
         rating = float(rating_match.group())
 
-        # Step 5: Build Goodreads URL
+        # Step 6: Build Goodreads URL
         book_link = None
         if book_link_tag and book_link_tag.get("href"):
             href = book_link_tag["href"]
@@ -246,28 +275,41 @@ def _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title):
     return None
 
 
-def get_rating_goodreads(ol_key, authors, title):
+def get_rating_goodreads(ol_key, authors, title, year=None):
     if not authors or not title:
-        print(f"{authors}-{title}: Author or title is None, skipping.")
         return None
 
+    # Skip titles that are too generic to match after cleaning
     clean_title = normalize(clean_text(title))
-    clean_authors = [normalize_author(clean_text(a)) for a in authors]
+    if len(clean_title.split()) < 1 or clean_title in {"works", "diary", "an autobiography"}:
+        print(f"Skipping '{title}' — title too generic after cleaning")
+        return None
+
+    clean_authors  = [normalize_author(clean_text(a)) for a in authors]
+    # Filter out empty strings that result from bad author data like "'Layton', 'Edwin T.'"
+    clean_authors  = [a for a in clean_authors if len(a.split()) >= 1 and len(a) > 1]
+    if not clean_authors:
+        print(f"Skipping '{title}' — no usable author after cleaning")
+        return None
+
     primary_author = clean_authors[0]
 
-    queries = [
-        clean_title,                            # title first
-        f"{primary_author} {clean_title}",      # fallback: author + title
+    query_passes = [
+        [f"{primary_author} {clean_title}", primary_author],
+        [clean_title, f"{primary_author} {clean_title}"],
     ]
 
     try:
-        for query in queries:
-            rows = _search_goodreads(query)
-            if not rows:
-                continue
-            result = _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title)
-            if result is not None:
-                return result
+        for pass_num, queries in enumerate(query_passes, start=1):
+            for query in queries:
+                rows = _search_goodreads(query)
+                if not rows:
+                    continue
+                result = _find_match_in_rows(rows, clean_title, clean_authors, ol_key, title, year=year)
+                if result is not None:
+                    if pass_num == 2:
+                        print(f"Matched '{title}' on title-first fallback pass")
+                    return result
 
         print(f"No match found for '{title}' by '{authors}'")
         return None
@@ -278,15 +320,14 @@ def get_rating_goodreads(ol_key, authors, title):
 
 
 def update_one(book):
-    ol_key, author, title = book
+    ol_key, author, title, year = book   # unpack year too
     authors = [a.strip() for a in author.split(",")] if author else []
-    result = get_rating_goodreads(ol_key, authors, title)
+    result = get_rating_goodreads(ol_key, authors, title, year=year)
 
     if result is None:
-        return  # Skip if lookup failed
+        return
 
-    rating, book_link = result  # Unpack the tuple
-
+    rating, book_link = result
     with db_lock:
         if book_link:
             book_database.execute(
@@ -302,7 +343,9 @@ def update_one(book):
 
 
 def update_ratings():
-    books = book_database.execute("SELECT ol_key, author, title FROM books").fetchall()
+    books = book_database.execute(
+        "SELECT ol_key, author, title, year FROM books"
+    ).fetchall()
 
     with ThreadPoolExecutor(max_workers=10) as executor:  # Lower from 100 — GR will rate-limit you
         futures = {executor.submit(update_one, book): book for book in books}
@@ -317,7 +360,7 @@ def update_ratings():
 
 def update_ratings_extra():
     books = book_database.execute(
-        "SELECT ol_key, author, title FROM books WHERE rating IS NULL"
+        "SELECT ol_key, author, title, year FROM books WHERE rating IS NULL"
     ).fetchall()
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -350,39 +393,3 @@ book_database.close()
 
 
 
-# @app.route("/")
-# def home():
-#     conn = sqlite3.connect("books.db")
-#     conn.row_factory = sqlite3.Row
-#     cursor = conn.cursor()
-
-#     cursor.execute("""
-#         SELECT title, author, rating, genre, year, readinglog, book_url
-#         FROM books
-#         WHERE rating IS NOT NULL
-#     """)
-
-#     rows = cursor.fetchall()
-#     conn.close()
-
-#     data = [dict(row) for row in rows]
-
-#     # Extract unique individual genres server-side
-#     genre_set = set()
-#     for book in data:
-#         if book.get("genre"):
-#             for g in book["genre"].split(","):
-#                 genre_set.add(g.strip())
-#     genres = sorted(genre_set)
-
-#     print(data[0])
-
-#     return render_template("home.html", data=data, genres=genres, limit="all")
-
-# @app.route("/about")
-# def about():
-#     return render_template('about.html')
-
-
-# if __name__ == "__main__":
-#     app.run(debug=True)
