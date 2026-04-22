@@ -8,11 +8,11 @@ No sponsored placements. No algorithmic noise. Just books.
 
 ## How it works
 
-**1. Fetch** — `pipeline.py` pulls books from the Open Library Search API across nine genres, sorted by reading-log activity. For each book, reading activity is totalled across want-to-read, currently reading, and already read via the Bookshelves API.
+**1. Fetch** — `main.py` pulls books from the Open Library Search API across nine genres, sorted by reading-log activity. For each book, reading activity is totalled across want-to-read, currently reading, and already read via the Bookshelves API.
 
 **2. Rate** — Each book is searched on Goodreads by title and author. When a confident match is found, the star rating and a direct link are saved. Books with fewer than 50 ratings or a readinglog under 100 are removed.
 
-**3. Serve** — `server.py` serves everything from a local SQLite database via Flask. No external calls at browse time.
+**3. Serve** — `bookshelf.py` serves everything from a local SQLite database via Flask. No external calls at browse time.
 
 ### Ranking formula
 
@@ -32,7 +32,7 @@ pip install flask requests beautifulsoup4
 
 ### 2. Build the database
 
-In `pipeline.py`, uncomment the fetch block and run:
+In `main.py`, uncomment the fetch block and run:
 
 ```bash
 python pipeline.py
@@ -42,10 +42,10 @@ This populates `books.db` with books from Open Library. May take a while dependi
 
 ### 3. Fetch Goodreads ratings
 
-Uncomment `clean_books()` and `update_ratings()` in `pipeline.py` and run it again:
+Uncomment `clean_books()` and `update_ratings()` in `main.py` and run it again:
 
 ```bash
-python pipeline.py
+python main.py
 ```
 
 To fill in any books still missing ratings without re-running everything, `update_ratings_extra()` is available — it only processes books where `rating IS NULL`.
@@ -53,7 +53,7 @@ To fill in any books still missing ratings without re-running everything, `updat
 ### 4. Run the app
 
 ```bash
-python server.py
+python bookshelf.py
 ```
 
 Visit `http://127.0.0.1:5000`
