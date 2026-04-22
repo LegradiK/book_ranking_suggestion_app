@@ -35,7 +35,7 @@ pip install flask requests beautifulsoup4
 In `main.py`, uncomment the fetch block and run:
 
 ```bash
-python pipeline.py
+python main.py
 ```
 
 This populates `books.db` with books from Open Library. May take a while depending on your connection.
