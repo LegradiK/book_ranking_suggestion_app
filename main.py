@@ -103,7 +103,8 @@ def insert_data_parallel(books, genre):
         for book in books:
             executor.submit(insert_data, book, genre)
 
-# ## Uncomment here for creating books.db ###
+""" Create books.db by collecting bookdata from Openlibrary with their readinglogs per genre """
+## Uncomment here for creating books.db
 # for genre in GENRES:
 #     for sort in SORTS:
 #         print(f"Fetching: {genre} sorted by {sort}...")
@@ -397,7 +398,8 @@ def clean_books():
     book_database.commit()
 
 
-# Uncomment here for updating your database with up-to-date url and rating scores
+"""Update books.db with goodreads data - url and rating scores """
+# Uncomment here for updating your database with up-to-date url and rating scores from goodreads
 # clean_books()
 # update_ratings()
 # update_ratings_extra()
